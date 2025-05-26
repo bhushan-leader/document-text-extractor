@@ -1,21 +1,33 @@
 import streamlit as st
-import pytesseract
-import fitz  # This comes from the PyMuPDF library
- # PyMuPDF for PDF handling
+import fitz  # PyMuPDF
 import os
-
+import requests
 from PIL import Image
 from docx import Document
 from datetime import datetime
 
-# Set Tesseract path (only for Windows)
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+# API key for OCR.space
+OCR_API_KEY = "K83406522288957"
 
-# Create folders to save files and texts
+# Create folders
 os.makedirs("extracted_docs", exist_ok=True)
 os.makedirs("extracted_texts", exist_ok=True)
 
-# Function to extract text
+# Function to call OCR.space for image text extraction
+def extract_text_from_image_api(image_file):
+    url = "https://api.ocr.space/parse/image"
+    files = {"file": image_file}
+    data = {"apikey": OCR_API_KEY, "language": "eng", "isOverlayRequired": False}
+
+    response = requests.post(url, files=files, data=data)
+    result = response.json()
+
+    if result.get("IsErroredOnProcessing"):
+        return "❌ OCR failed: " + result.get("ErrorMessage", ["Unknown error"])[0]
+
+    return result["ParsedResults"][0]["ParsedText"]
+
+# General extraction function
 def extract_text(file):
     text = ""
     file_type = file.name.lower()
@@ -30,14 +42,14 @@ def extract_text(file):
             text += page.get_text()
 
     elif file_type.endswith((".png", ".jpg", ".jpeg")):
-        image = Image.open(file)
-        text = pytesseract.image_to_string(image)
+        text = extract_text_from_image_api(file)
 
     return text.strip()
 
 # Save function
 def save_file_and_text(file, text, source="upload"):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
     if source == "camera":
         base_name = "camera"
         file_path = os.path.join("extracted_docs", f"{timestamp}_{base_name}.jpg")
@@ -52,7 +64,6 @@ def save_file_and_text(file, text, source="upload"):
             f.write(file.read())
         text_path = os.path.join("extracted_texts", f"{timestamp}_{base_name}.txt")
 
-    # Save text
     with open(text_path, "w", encoding="utf-8") as f:
         f.write(text)
     st.success(f"✅ {source.capitalize()} file and extracted text saved!")
@@ -75,8 +86,7 @@ st.header("📷 Capture Document via Camera")
 camera_photo = st.camera_input("Take a photo")
 
 if camera_photo:
-    image = Image.open(camera_photo)
-    text = pytesseract.image_to_string(image).strip()
-    st.text_area("📋 Extracted Text from Camera", text, height=300)
+    extracted_text = extract_text_from_image_api(camera_photo)
+    st.text_area("📋 Extracted Text from Camera", extracted_text, height=300)
     if st.button("💾 Save Camera Image and Text"):
-        save_file_and_text(camera_photo, text, source="camera")
+        save_file_and_text(camera_photo, extracted_text, source="camera")
